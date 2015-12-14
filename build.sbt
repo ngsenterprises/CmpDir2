@@ -31,7 +31,8 @@ libraryDependencies ++= {
     "com.typesafe.akka"           %% "akka-slf4j"         % akkaVersion,
     "com.typesafe.akka"           %% "akka-testkit"       % akkaVersion % "test",
     "org.scalatest"               %% "scalatest"          % scalaTestVersion % "test",
-    "joda-time"                   % "joda-time"           % "2.9.1"
+    "joda-time"                   % "joda-time"           % "2.9.1",
+    "org.scalaz"                  %% "scalaz-core"        % "7.2.0"
   )
 }
 
