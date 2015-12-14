@@ -4,6 +4,8 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/cmpdir.iml" filepath="$PROJECT_DIR$/.idea/modules/cmpdir.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/cmpdir-build.iml" filepath="$PROJECT_DIR$/.idea/modules/cmpdir-build.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/cmpdir2.iml" filepath="$PROJECT_DIR$/.idea/modules/cmpdir2.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/cmpdir2-build.iml" filepath="$PROJECT_DIR$/.idea/modules/cmpdir2-build.iml" />
     </modules>
   </component>
 </project>
