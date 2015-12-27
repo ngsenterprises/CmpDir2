@@ -1,0 +1,4 @@
+~clean compile
+clean compile
+sbt clean compile
+exit
