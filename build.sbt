@@ -6,6 +6,8 @@ version := "1.0.0"
 
 scalaVersion := "2.11.7"
 
+assemblyJarName := "CmpDir.jar"
+
 scalariformSettings
 
 ScalariformKeys.preferences := ScalariformKeys.preferences.value
@@ -31,8 +33,8 @@ libraryDependencies ++= {
     "com.typesafe.akka"           %% "akka-slf4j"         % akkaVersion,
     "com.typesafe.akka"           %% "akka-testkit"       % akkaVersion % "test",
     "org.scalatest"               %% "scalatest"          % scalaTestVersion % "test",
-    "joda-time"                   % "joda-time"           % "2.9.1",
-    "org.scalaz"                  %% "scalaz-core"        % "7.2.0"
+    "joda-time"                   % "joda-time"           % "2.9.1"
+    //"org.scalaz"                  %% "scalaz-core"        % "7.2.0"
   )
 }
 

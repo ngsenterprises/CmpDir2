@@ -1,23 +1,14 @@
 package com.ngs.cmpdir.config
 
-import java.io.File
-
-//import scala.util.control.NonFatal
 import scala.util.{ Try, Success, Failure }
-
-import com.typesafe.config._
 import com.typesafe.config.{ Config, ConfigFactory }
-import com.typesafe.config.ConfigException._
 import com.typesafe.config.ConfigException.{ Missing, WrongType }
-//import com.typesafe.config
 import collection.JavaConversions._
 import com.typesafe.scalalogging.StrictLogging
 
 object BaseConfig extends StrictLogging {
-  //logger.info("Loading config file ...")
-  val prop: String = System.getProperty("config.file")
-  val configFile: String = if (prop == null) { "src/main/resources/application.conf" } else { prop }
-  val config: Config = ConfigFactory.load(ConfigFactory.parseFileAnySyntax(new File(configFile)))
+  logger.info("Loading config file ...")
+  val config: Config = ConfigFactory.load()
 }
 
 trait BaseConfig {
@@ -54,42 +45,69 @@ trait BaseConfig {
 }
 
 trait AppConfig extends BaseConfig {
-  val applicationName = getCfgStringOrElse("application.app-name", "")
+  val appName = getCfgStringOrElse("application.app-name", "Compare App")
+  val appLogging = getCfgIntOrElse("application.app-logging", 0)
 }
 
 trait AkkaConfig extends BaseConfig {
   val processors: Int = Runtime.getRuntime.availableProcessors
-  val maxActors = getCfgIntOrElse("akka.max-actors", 7)
-  val queueFactor = getCfgIntOrElse("akka.queue-factor", 3)
+  val maxActors = math.max(1, getCfgIntOrElse("akka.max-actors", 7))
+  val queueFactor = math.max(1, getCfgIntOrElse("akka.queue-factor", 3))
+  val actorVerbose = getCfgBooleanOrElse("akka.actor-verbose", false)
 }
 
 trait FileConfig extends BaseConfig {
-
-  val basisFile = getCfgStringOrElse("basis-file", "")
-  val testFile = getCfgStrListOrElse("cmp-files", List.empty[String])
-
+  def basisFileName = getCfgStringOrElse("files.basis-file-name", "")
+  def cmpFileNames = getCfgStrListOrElse("files.cmp-file-names", List.empty[String])
   val fileTypes = getCfgStrListOrElse("files.cmp-types", List.empty[String])
+  val cmpVerbose = getCfgBooleanOrElse("files.cmp-verbose", false)
+  val headerCharacter = getCfgStringOrElse("files.header-character", "#")(0)
 
-  case class FileParms(skipHdr: Int, startLine: Int,
-      maxLines: Int, maxErrors: Int) {
-    def printParms = {
+  case class FileParms(skipHdr: Boolean,
+      startLine: Int,
+      maxLines: Int,
+      maxErrors: Int) {
+    def printParms(): Unit = {
       println("FileParms {")
-      println(s" skipHdr: ${skipHdr}")
-      println(s" startLine: ${startLine}")
-      println(s" maxErrors: ${maxErrors}")
+      println(s" skipHdr: $skipHdr")
+      println(s" startLine: $startLine")
+      println(s" maxErrors: $maxErrors")
       println("}")
     }
   }
 
+  def nonNegIntMaxOverride(k: Int): Int = k match {
+    case k: Int if k < 0 || Int.MaxValue <= k => Int.MaxValue
+    case _ => k
+  }
+
   val fileTypeMap =
     fileTypes.foldLeft(Map.empty[String, FileParms]) { (ac, ext) =>
-      val skiphdr = getCfgIntOrElse(s"files.${ext}.skip-hdr", 0)
-      val startline = getCfgIntOrElse(s"files.${ext}.start-line", 0)
-      val maxlines = getCfgIntOrElse(s"files.${ext}.max-lines", -1)
-      val maxerrors = getCfgIntOrElse(s"files.${ext}.max-errors", 20)
+      val skiphdr = getCfgBooleanOrElse(s"files.${ext}.skip-hdr", bdef = false)
+      val startline = math.max(0, getCfgIntOrElse(s"files.${ext}.start-line", idef = 0))
+      val maxlines = nonNegIntMaxOverride(getCfgIntOrElse(s"files.${ext}.max-lines", Int.MaxValue))
+      val maxerrors = nonNegIntMaxOverride(getCfgIntOrElse(s"files.${ext}.max-errors", Int.MaxValue))
       ac + (ext -> new FileParms(skiphdr, startline, maxlines, maxerrors))
     }
-
 }
 
-trait AllConfigs extends BaseConfig with AppConfig with AkkaConfig with FileConfig
+trait AllConfigs extends BaseConfig with AppConfig with AkkaConfig with FileConfig {
+  def printAll(): Unit = {
+    println(s"appName: ${appName.toString}")
+    println(s"appLogging: ${appLogging.toString}")
+    println(s"processors: ${processors.toString}")
+    println(s"maxActors: ${maxActors.toString}")
+    println(s"queueFactor: ${queueFactor.toString}")
+    println(s"actorVerbose: ${actorVerbose.toString}")
+    println(s"basisFileName: ${basisFileName.toString}")
+    cmpFileNames.zipWithIndex.foreach { item =>
+      println(s"cmpFileName: ${item._2.toString} ${item._1.toString}")
+    }
+    fileTypes.zipWithIndex.foreach { item =>
+      println(s"fileType: ${item._2.toString} ${item._1.toString}")
+    }
+    println(s"cmpVerbose: ${cmpVerbose.toString}")
+    println(s"headerCharacter: $headerCharacter")
+  }
+
+}

@@ -1,184 +1,144 @@
 package com.ngs.cmpdir.utils
 
-import com.ngs.cmpdir.actors.CmpJob
-import com.ngs.cmpdir.actors.CmpJobsStreamEnd
-import com.ngs.cmpdir.config._
-
 import java.io.{ FileWriter, File }
-
 import scala.collection.immutable.{ List, HashMap }
 import scala.util.{ Try, Success, Failure }
-import scala.util.control.NonFatal
-import scala.io.Source
+import com.typesafe.scalalogging.StrictLogging
+import com.ngs.cmpdir.actors.CmpJob
+import com.ngs.cmpdir.config._
+import com.ngs.cmpdir.utils.datasink.DataSink
+import com.ngs.cmpdir.utils.datasrc.FileSrc
+import com.ngs.cmpdir.utils.io.CmpLogging
 
-import akka.actor.ActorRef
-import com.typesafe.config.{ ConfigFactory, Config }
+object Uid extends UidGenerator
 
-object CmpDirUtils extends AllConfigs {
+trait UidGenerator {
+  private var nextId = 0
+  def getNextId(): Int = {
+    nextId += 1
+    nextId
+  }
+}
 
-  object uuid {
-    private var nextId = 0
-    def getNextId(): Int = {
-      nextId += 1
-      nextId
+trait JobGenerator extends FileConfig with CmpLogging {
+
+  def nextDir(dBasis: File, dCmp: File, cmpSink: DataSink): Try[_] = {
+    val basisSplit = Try(dBasis.listFiles.partition(_.isFile)) match {
+      case Failure(e) => throw e
+      case Success(s) => s
     }
-  } //----------------------
+    val cmpSplit = Try(dCmp.listFiles.partition(_.isFile)) match {
+      case Failure(e) => throw e
+      case Success(s) => s
+    }
 
-  def GenCmpJobs(supervisor: ActorRef): Unit = {
+    val cmpFileMap = cmpSplit._1.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
+    val cmpDirMap = cmpSplit._2.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
 
-    def nextDir(dBasis: File, dCmp: File): Unit = {
-
-      val basisSplit = dBasis.listFiles.partition(_.isFile)
-      val cmpSplit = dCmp.listFiles.partition(_.isFile)
-      val cmpFileMap = cmpSplit._1.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
-      val cmpDirMap = cmpSplit._2.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
-
-      basisSplit._1.foreach { f =>
-        cmpFileMap.get(f.getName) match {
-          case None => ()
-          case Some(fcmp: File) => supervisor ! new CmpJob(f, fcmp, uuid.getNextId)
+    basisSplit._1.foreach { fbasis =>
+      cmpFileMap.get(fbasis.getName) match {
+        case None => ()
+        case Some(fcmp: File) => {
+          cmpSink.inputCmpJob(new CmpJob(fbasis, fcmp, Uid.getNextId))
         }
       }
+    }
 
-      basisSplit._2.foreach { d =>
-        cmpDirMap.get(d.getName) match {
-          case None => ()
-          case Some(dcmp: File) => nextDir(d, dcmp)
-        }
+    basisSplit._2.foreach { d =>
+      cmpDirMap.get(d.getName) match {
+        case None => ()
+        case Some(dcmp: File) => nextDir(d, dcmp, cmpSink)
       }
-    } //...........................................................
+    }
+    Success(true)
+  } //...........................................................
 
-    val basFile = getCfgStringOrElse("files.basis-file", "")
-    val cmpFiles = getCfgStrListOrElse("files.cmp-files", List[String]())
-
-    if (basFile.length <= 0) println("GenCmpJobs: Basis file must be given.")
-    else if (cmpFiles.length < 1) println("GenCmpJobs: Must have at least 1 compare file.")
+  def initGen(cmpSink: DataSink): Try[_] = {
+    if (basisFileName.length <= 0) throw new Exception("GenCmpJobs: Basis file must be given.")
+    else if (cmpFileNames.length < 1) throw new Exception("GenCmpJobs: Must have at least 1 compare file.")
     else {
-      val fBasis = new File(basFile)
-      val fCmps = cmpFiles.foldLeft(List[File]()) { (ac, s) => (new File(s)) :: ac }
+      val fBasis = new File(basisFileName)
+      val fCmps = cmpFileNames.foldLeft(List[File]()) { (ac, fn) =>
+        new File(fn) :: ac
+      }
 
-      if (fBasis.isFile)
-        fCmps.foreach { f => if (f.isFile) supervisor ! new CmpJob(fBasis, f, uuid.getNextId) }
-      else
-        fCmps.foreach { d => if (d.isDirectory) nextDir(fBasis, d) }
+      if (fBasis.isFile) {
+        fCmps.foreach { fcmp => if (fcmp.isFile) cmpSink.inputCmpJob(new CmpJob(fBasis, fcmp, Uid.getNextId)) }
+        Success(true)
+      } else if (fBasis.isDirectory) {
+        fCmps.foreach { f => if (f.isDirectory) nextDir(fBasis, f, cmpSink) }
+        Success(true)
+      } else
+        Failure(new Exception("GenCmpJobs: Basis file not found."))
     }
   }
 
-  object SrcGen {
-    def apply(f: File): SrcGen = { new SrcGen(f) }
+  def generate(cmpSink: DataSink): Boolean = {
+    logger.info(s"Generating file compare jobs ...")
+    val res = initGen(cmpSink) match {
+      case Failure(f) => { logger.info(f.getMessage); false }
+      case Success(s) => true
+    }
+    logger.info(s"Generating file compare jobs completed ...")
+    res
   }
-  class SrcGen(f: File) {
-    var optCurVal: Option[String] = None
-    private val optItr =
-      Try(Source.fromFile(f)) match {
-        case Success(s) => Some(s.getLines)
-        case Failure(f: Throwable) if (NonFatal(f)) => None
-        case Failure(f: Throwable) => throw f
-      }
-    def hasNext: Boolean = optItr match {
-      case Some(s) => s.hasNext
-      case None => false
-    }
-    def next: Option[String] = optItr match {
-      case Some(src) if src.hasNext => {
-        optCurVal = Some(src.next)
-        optCurVal
-      }
-      case _ => {
-        optCurVal = None
-        None
-      }
-    }
-    def skipHeader(hdrChar: Char): Unit = {
-      var done = false
-      while (!done) optCurVal match {
-        case Some(s) if (0 < s.length && s(0) == '#') => { next; done = false }
-        case Some(s) => done = true
-        case None => done = true
-      }
-    }
-    def skipLines(numLines: Int): Unit = {
-      var index = numLines
-      while (0 < index) optCurVal match {
-        case Some(s) => {
-          index -= 1
-          next
-        }
-        case None => index = 0
-      }
-    }
-    def hasCurrent: Boolean = optCurVal match {
-      case Some(s) => true
-      case _ => false
-    }
-    def getCurrent: String = optCurVal match {
-      case Some(s) => s
-      case _ => ""
-    }
-  }
+}
+object CmpJobGenerator extends JobGenerator
 
-  def cmpFiles(bas: File, trg: File): Long = {
-    //println("cmpFiles [" +bas.getAbsolutePath +"]" +" [" +trg.getAbsolutePath +"]")
-
+trait FileComparator extends AllConfigs with CmpLogging {
+  def cmp(bas: File, trg: File): Int = {
     var error_count = 0
-    try {
-      if (bas.isFile && trg.isFile) {
+    if (cmpVerbose) cmpprintln(s"[${trg.getAbsolutePath}]")
+    if (bas.isFile && trg.isFile) {
+      val suffix = bas.getAbsolutePath.split('.').last
+      val ft = fileTypeMap.getOrElse(suffix, new FileParms(false, 0, Int.MaxValue, Int.MaxValue))
 
-        val suffix = bas.getAbsolutePath.split('.').last
-        val ft = fileTypeMap.getOrElse(suffix, new FileParms(0, 0, 0, 0))
+      if (ft.maxLines != 0) {
+        val srcBas = FileSrc(bas)
+        val srcTrg = FileSrc(trg)
+        val wrt = new FileWriter(trg.getAbsolutePath + ".cmp")
 
-        if (ft.maxLines != 0) {
-          val srcBas = SrcGen(bas)
-          val srcTrg = SrcGen(trg)
+        var lines_compared = 0
+        var bas_line_cnt = 0
+        var trg_line_cnt = 0
 
-          val wrt = new FileWriter(trg.getAbsolutePath + ".cmp")
+        srcBas.next
+        srcTrg.next
 
-          var line_count = 0
-          val skip_hdr = (ft.skipHdr == 1)
-          val start_line = ft.startLine
-          val max_lines = if (ft.maxLines < 0) Int.MaxValue else ft.maxLines
-          val max_errors = ft.maxErrors
-
-          srcBas.next
-          srcTrg.next
-
-          //skip header
-          if (skip_hdr) {
-            srcBas.skipHeader('#')
-            srcTrg.skipHeader('#')
-          }
-
-          //start line
-          if (0 < start_line) {
-            srcBas.skipLines(start_line)
-            srcTrg.skipLines(start_line)
-            line_count = start_line
-          }
-
-          while (line_count < max_lines &&
-            error_count < max_errors &&
-            srcBas.hasCurrent &&
-            srcTrg.hasCurrent) {
-            if (srcBas.getCurrent.compare(srcTrg.getCurrent.toString) != 0) {
-              wrt.write(line_count.toString + "\n")
-              wrt.write("[" + srcBas.getCurrent + "]\n")
-              wrt.write("[" + srcTrg.getCurrent + "]\n")
-              error_count += 1
-            }
-            line_count += 1
-            srcBas.next
-            srcTrg.next
-            //println(s"srcBas.next: ${srcBas.getCurrent}")
-          }
-          wrt.close
+        //skip header
+        if (ft.skipHdr) {
+          bas_line_cnt += srcBas.skipHeader(headerCharacter)
+          trg_line_cnt += srcTrg.skipHeader(headerCharacter)
         }
-      }
-    } catch {
-      case NonFatal(e) => {
-        println("exception: " + e.toString)
+
+        //start line
+        if (0 < ft.startLine) {
+          bas_line_cnt += srcBas.skipLines(ft.startLine)
+          trg_line_cnt += srcTrg.skipLines(ft.startLine)
+        }
+
+        while (lines_compared < ft.maxLines &&
+          error_count < ft.maxErrors &&
+          srcBas.hasCurrent &&
+          srcTrg.hasCurrent) {
+          if (srcBas.getCurrent.compare(srcTrg.getCurrent.toString) != 0) {
+            wrt.write(s"${bas_line_cnt}: [${srcBas.getCurrent}]\n")
+            wrt.write(s"${trg_line_cnt}: [${srcTrg.getCurrent}]\n")
+            wrt.write("\n")
+            error_count += 1
+          }
+          lines_compared += 1
+          srcBas.next
+          bas_line_cnt += 1
+          srcTrg.next
+          trg_line_cnt += 1
+        }
+        wrt.close
       }
     }
     error_count
   }
+} //end trait FileComparator
 
-} //end CmpDirUtils
+object FileCmp extends FileComparator
+
