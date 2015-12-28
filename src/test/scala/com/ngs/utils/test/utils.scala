@@ -8,7 +8,7 @@ import com.ngs.cmpdir.utils
 import com.ngs.cmpdir.utils.datasink.{ DataSink, CmpJobListBufferSink, CmpJobActorRefSink }
 import org.scalatest.FunSuite
 import com.typesafe.scalalogging.StrictLogging
-import com.ngs.cmpdir.utils.{ CmpJobGenerator, UuidGenerator }
+import com.ngs.cmpdir.utils.{ CmpJobGenerator, UidGenerator }
 
 import scala.collection.mutable.ListBuffer
 
@@ -39,14 +39,17 @@ class utilsTest extends FunSuite with StrictLogging with AllConfigs {
     val buf = new ListBuffer[CmpJob]()
     CmpJobGenerator.generate(CmpJobListBufferSink(buf))
     val cmplist = buf.map { cj => (cj.bas.getName, cj.cmp.getName) }
+
+    //println(s"buflist: length = ${buf.length}")
+    //buf.foreach { cj => println(s"bas: ${cj.bas.getName} cmp: ${cj.cmp.getName} ") }
+
     assert(cmplist.contains(("f1.tab", "f1.tab")) == true)
     assert(cmplist.contains(("f2.txt", "f2.txt")) == true)
-    assert(cmplist.contains(("readme.md", "readme.md")) == true)
     assert(cmplist.contains(("f3.tab", "f3.tab")) == true)
   }
 
   test("Source file missing trial.") {
-    object myuuid1 extends UuidGenerator
+    object myuid1 extends UidGenerator
 
     import com.ngs.cmpdir.utils.JobGenerator
     trait FileConfigTest extends FileConfig {
@@ -55,15 +58,16 @@ class utilsTest extends FunSuite with StrictLogging with AllConfigs {
     }
     object CmpJobGeneratorTest extends JobGenerator with FileConfigTest
 
-    println(s"basisFileName: [${CmpJobGeneratorTest.basisFileName}]")
+    //    println(s"basisFileName: [${CmpJobGeneratorTest.basisFileName}]")
     val buf = new ListBuffer[CmpJob]()
     CmpJobGeneratorTest.generate(CmpJobListBufferSink(buf))
 
   }
 
   test("uuid init confirm.") {
+    import com.ngs.cmpdir.utils.{ UidGenerator }
 
-    object myuuid1 extends UuidGenerator
+    object myuuid1 extends UidGenerator
 
     val id1 = myuuid1.getNextId
     assert(id1 == 1)
@@ -72,10 +76,9 @@ class utilsTest extends FunSuite with StrictLogging with AllConfigs {
     val id3 = myuuid1.getNextId
     assert(id3 == 3)
 
-    object myuuid2 extends UuidGenerator
+    object myuuid2 extends UidGenerator
     var id = 3
     (1 to 100000).foreach { _ => id = myuuid2.getNextId }
     assert(id == 100000)
   }
-
 }

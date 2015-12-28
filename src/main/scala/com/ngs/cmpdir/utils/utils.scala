@@ -22,51 +22,98 @@ trait UidGenerator {
 
 trait JobGenerator extends FileConfig with CmpLogging {
 
-  def nextDir(dBasis: File, dCmp: File, cmpSink: DataSink): Try[_] = {
+  def nextDir(dBasis: File, dCmp: File)(implicit cmpSink: DataSink): Try[_] = {
+
+    //println(s"nextDir: ${dBasis.getName} ${dCmp.getName}")
     val basisSplit = Try(dBasis.listFiles.partition(_.isFile)) match {
       case Failure(e) => throw e
       case Success(s) => s
     }
+    //println(s"basisSplit._1 ${basisSplit._1.toList}")
+    //println(s"basisSplit._1: ${basisSplit._1.toList}")
+    //println(s"basisSplit._2: ${basisSplit._2.toList}")
+
+    //println(s"nextDir2: ${dBasis.getName} ${dCmp.getName}")
     val cmpSplit = Try(dCmp.listFiles.partition(_.isFile)) match {
       case Failure(e) => throw e
       case Success(s) => s
     }
+    //println(s"cmpSplit._1: ${cmpSplit._1.toList}")
+    //println(s"cmpSplit._2: ${cmpSplit._2.toList}")
 
-    val cmpFileMap = cmpSplit._1.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
+    //println(s"nextDir3: ${dBasis.getName} ${dCmp.getName}")
+    //println(s"basisSplit._1.toList: ${basisSplit._1.toList}")
+
+    //    val basisFiles = basisSplit._1.toList.foldLeft(List.empty[File]) { (ac, f) =>
+    //      f.getName.split(".") match {
+    //        case a: Array[String] if (0 < a.length && fileTypes.contains(a.last)) => f :: ac
+    //        case _ => ac
+    //      }
+    //    }
+    //println(s"basisFiles: ${basisFiles}")
+    //println(s"basisFiles.length: ${basisSplit._1.length}")
+    if (0 < basisSplit._1.length) {
+      val cmpFileMap = cmpSplit._1.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
+      //println(s"cmpFileMap: ${cmpFileMap.toList}")
+      basisSplit._1.foreach {
+        case fbasis: File =>
+          //println(s"fbasis: ${fbasis.getName}")
+          val basisName = fbasis.getName
+          val a = basisName.split('.')
+          //println(s"a: ${a.toList}")
+          val ext = if (0 < a.length) a.last else ""
+          //println(s"ext: ${ext}")
+          if (0 < ext.length && fileTypes.contains(ext) && cmpFileMap.keys.toList.contains(basisName)) {
+            val fcmp = cmpFileMap.getOrElse(basisName, new File(""))
+            if (0 < fcmp.getName.length)
+              cmpSink.inputCmpJob(new CmpJob(fcmp, fcmp, Uid.getNextId))
+          }
+      }
+    }
     val cmpDirMap = cmpSplit._2.foldLeft(Map.empty[String, File]) { (ac, f) => ac + (f.getName -> f) }
 
-    basisSplit._1.foreach { fbasis =>
-      cmpFileMap.get(fbasis.getName) match {
-        case None => ()
-        case Some(fcmp: File) => {
-          cmpSink.inputCmpJob(new CmpJob(fbasis, fcmp, Uid.getNextId))
-        }
-      }
-    }
-
+    //println(s"nextDir6: ${dBasis.getName} ${dCmp.getName}")
     basisSplit._2.foreach { d =>
       cmpDirMap.get(d.getName) match {
-        case None => ()
-        case Some(dcmp: File) => nextDir(d, dcmp, cmpSink)
+        case None => Success("")
+        case Some(dcmp: File) => nextDir(d, dcmp)
       }
     }
+    //println(s"nextDir7: ${dBasis.getName} ${dCmp.getName}")
+
     Success(true)
   } //...........................................................
 
-  def initGen(cmpSink: DataSink): Try[_] = {
+  def initGen(implicit cmpSink: DataSink): Try[_] = {
+    //logger.info(s"initGen ...")
     if (basisFileName.length <= 0) throw new Exception("GenCmpJobs: Basis file must be given.")
     else if (cmpFileNames.length < 1) throw new Exception("GenCmpJobs: Must have at least 1 compare file.")
     else {
+      //println(s"basisFileName: ${basisFileName}")
       val fBasis = new File(basisFileName)
-      val fCmps = cmpFileNames.foldLeft(List[File]()) { (ac, fn) =>
-        new File(fn) :: ac
-      }
+      val fCmps = cmpFileNames.foldLeft(List[File]()) { (ac, fn) => new File(fn) :: ac }
 
       if (fBasis.isFile) {
-        fCmps.foreach { fcmp => if (fcmp.isFile) cmpSink.inputCmpJob(new CmpJob(fBasis, fcmp, Uid.getNextId)) }
+        //println(s"FILE basisFileName: ${basisFileName}")
+        val basisName = fBasis.getName
+        val a = basisName.split('.')
+        val ext = if (0 < a.length) a.last else ""
+        if (0 < ext.length && fileTypes.contains(ext)) {
+          val fcmplist = Try(fCmps.partition(_.isFile)) match {
+            case Failure(e) => throw e
+            case Success(s) => s._1
+          }
+          fcmplist.foreach {
+            case f: File =>
+              if (f.getName.endsWith(ext))
+                cmpSink.inputCmpJob(new CmpJob(fBasis, f, Uid.getNextId))
+          }
+        }
+
         Success(true)
       } else if (fBasis.isDirectory) {
-        fCmps.foreach { f => if (f.isDirectory) nextDir(fBasis, f, cmpSink) }
+        //println(s"DIR basisFileName: ${basisFileName}")
+        fCmps.foreach { f => if (f.isDirectory) nextDir(fBasis, f) }
         Success(true)
       } else
         Failure(new Exception("GenCmpJobs: Basis file not found."))
@@ -74,12 +121,12 @@ trait JobGenerator extends FileConfig with CmpLogging {
   }
 
   def generate(cmpSink: DataSink): Boolean = {
-    logger.info(s"Generating file compare jobs ...")
+    //logger.info(s"Generating file compare jobs ...")
     val res = initGen(cmpSink) match {
       case Failure(f) => { logger.info(f.getMessage); false }
       case Success(s) => true
     }
-    logger.info(s"Generating file compare jobs completed ...")
+    //logger.info(s"Generating file compare jobs completed ...")
     res
   }
 }
