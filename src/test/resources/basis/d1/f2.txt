@@ -1,0 +1,35 @@
+PATAN - Patient Analysis - CCGroup Marketbasket System(TM), Version: $BUILD_VERSION$ 
+       rundate: Mon Jan 13 09:17:53 2014
+      in-file: 'C:\CCG\user_81_curr\validation\..\..\cli\sampledata_grp_30.sort'
+     out-file: 'C:\CCG\user_81_curr\validation\patan\assign.tab'
+
+ Project (run.ini) Parameters 
+**************************************************************************
+      drop partial:  TRUE 
+    drop comorbids:  TRUE 
+maximum conditions:  35 
+  maximum duration:  180 
+     ip day charge:  0 
+   op visit charge:  0 
+  assign threshold:  20 
+   low out percent:  2 
+    low out dollar:  35 
+  high out percent:  3 
+     high out diff:  175 
+ min episode count:  2 
+  confidence level:  4 
+   aggregate start:  0 
+     aggregate end:  0 
+   high out dollar:  Not used 
+    high out table: 'C:\CCG\sys_81_curr\tables\MBConditions.tab' 
+  study date start:  20040101 
+    study date end:  20041231 
+    study date mid:  20040630 
+     study date Q4:  20040930 
+slider1 date start:  20040301 
+  slider1 date end:  20041231 
+slider2 date start:  Not used 
+  slider2 date end:  Not used 
+  ***************************************************************************
+
+            99433 families overall
